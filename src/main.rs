@@ -1,6 +1,9 @@
+use std::ffi::c_void;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{self, Read};
+use std::mem;
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;
@@ -43,11 +46,39 @@ impl From<Config> for UsableConfig {
     }
 }
 
-fn tun2he(tun: Arc<Iface>) -> Result<()> {
-    let local = Ipv4Addr::new(10, 128, 10, 237);
-    let remote = Ipv4Addr::new(10, 128, 10, 185);
+fn send_to(sock: &Socket, buf: &[u8]) -> io::Result<usize> {
+    let mut sa = libc::sockaddr_ll {
+        sll_family: (libc::AF_PACKET as u16).to_be(),
+        sll_protocol: (libc::ETH_P_IP as u16).to_be(),
+        sll_ifindex: 64,
+        sll_hatype: 0,
+        sll_pkttype: 0,
+        sll_halen: 6,
+        sll_addr: [0xff; 8],
+    };
 
-    let mut sock = Socket::new(
+    unsafe {
+        match libc::sendto(
+            sock.as_raw_fd(),
+            buf as *const _ as *const c_void,
+            mem::size_of_val(buf),
+            0,
+            &mut sa as *mut libc::sockaddr_ll as *const libc::sockaddr,
+            mem::size_of_val(&sa) as u32,
+        ) {
+            n if n < 0 => Err(io::Error::last_os_error()),
+            n => Ok(n as usize),
+        }
+    }
+}
+
+fn tun2he(tun: Arc<Iface>) -> Result<()> {
+    //let local = Ipv4Addr::new(10, 128, 10, 237);
+    //let remote = Ipv4Addr::new(10, 128, 10, 185);
+    let local = Ipv4Addr::new(10, 42, 42, 30);
+    let remote = Ipv4Addr::new(10, 42, 42, 254);
+
+    let sock = Socket::new(
         libc::AF_PACKET.into(),
         Type::DGRAM,
         Some(((libc::ETH_P_IPV6 as u16).to_be() as i32).into()),
@@ -98,7 +129,7 @@ fn tun2he(tun: Arc<Iface>) -> Result<()> {
 
         NE::write_u16(&mut buf[14..16], !(sum as u16));
 
-        match sock.write(&buf[4..]) {
+        match send_to(&sock, &buf[4..]) {
             Ok(sent) if sent != buf[4..].len() => println!(
                 "[6in4] tun2he warning: partial transmission ({} < {})",
                 sent,
