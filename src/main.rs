@@ -344,7 +344,10 @@ fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
         println!("[6in4] wait for {}", vlan_name);
         link::wait_exists(vlan_name.clone())?;
 
-        fs::write("/proc/sys/net/ipv6/conf/{}/accept_ra", "0")?;
+        fs::write(
+            format!("/proc/sys/net/ipv6/conf/{}/accept_ra", vlan_name),
+            "0",
+        )?;
 
         addr::add_link_local(vlan_name.clone(), LINK_LOCAL.into(), 64)?;
         addr::add(vlan_name.clone(), vlan_addr.into(), 64)?;
