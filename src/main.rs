@@ -90,7 +90,7 @@ fn send_to(ifi: i32, sock: &Socket, buf: &[u8]) -> io::Result<usize> {
 }
 
 fn tun2he(tun: Arc<Iface>, local: Arc<Mutex<Ipv4Addr>>, remote: &Ipv4Addr) -> Result<()> {
-    let ifi = link::index("ppp0".into())? as i32;
+    let ifi = link::index("rsppp0".into())? as i32;
 
     let sock = Socket::new(
         libc::AF_PACKET.into(),
