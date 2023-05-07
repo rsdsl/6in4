@@ -13,11 +13,25 @@ use byteorder::{ByteOrder, NetworkEndian as NE};
 use ipnet::Ipv6Net;
 use notify::event::{CreateKind, ModifyKind};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
+use rsdsl_ip_config::IpConfig;
 use rsdsl_netlinkd::error::Result;
 use rsdsl_netlinkd::{addr, link, route};
 use serde::{Deserialize, Serialize};
 use socket2::{Socket, Type};
+use thiserror::Error;
 use tun_tap::{Iface, Mode};
+
+#[derive(Debug, Error)]
+enum Error {
+    #[error("io: {0}")]
+    Io(#[from] io::Error),
+    #[error("reqwest: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("rsdsl_netlinkd: {0}")]
+    RsdslNetlinkd(#[from] rsdsl_netlinkd::error::Error),
+    #[error("serde_json: {0}")]
+    SerdeJson(#[from] serde_json::Error),
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Config {
@@ -25,6 +39,7 @@ struct Config {
     pub tn64: Ipv6Addr,
     pub rt64: Ipv6Addr,
     pub rt48: Ipv6Addr,
+    pub updt: String,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +48,7 @@ struct UsableConfig {
     pub tn64: Ipv6Net,
     pub rt64: Ipv6Net,
     pub rt48: Ipv6Net,
+    pub updt: String,
 }
 
 impl From<Config> for UsableConfig {
@@ -42,6 +58,7 @@ impl From<Config> for UsableConfig {
             tn64: Ipv6Net::new(config.tn64, 64).unwrap(),
             rt64: Ipv6Net::new(config.rt64, 64).unwrap(),
             rt48: Ipv6Net::new(config.rt48, 48).unwrap(),
+            updt: config.updt,
         }
     }
 }
@@ -72,11 +89,7 @@ fn send_to(ifi: i32, sock: &Socket, buf: &[u8]) -> io::Result<usize> {
     }
 }
 
-fn tun2he(tun: Arc<Iface>, remote: &Ipv4Addr) -> Result<()> {
-    //let local = Ipv4Addr::new(10, 128, 10, 237);
-    //let remote = Ipv4Addr::new(10, 128, 10, 185);
-    let local = Arc::new(Mutex::new(Ipv4Addr::new(10, 42, 42, 30)));
-
+fn tun2he(tun: Arc<Iface>, local: Arc<Mutex<Ipv4Addr>>, remote: &Ipv4Addr) -> Result<()> {
     let ifi = link::index("ppp0".into())? as i32;
 
     let sock = Socket::new(
@@ -195,9 +208,13 @@ fn main() -> Result<()> {
     let tun = Arc::new(Iface::new("he6in4", Mode::Tun)?);
     let tun2 = tun.clone();
 
+    let local = Arc::new(Mutex::new(Ipv4Addr::UNSPECIFIED));
+    let local2 = local.clone();
+
+    configure_endpoint(&config, local.clone());
     configure_tunnel(&config);
 
-    thread::spawn(move || match tun2he(tun2, &config.serv) {
+    thread::spawn(move || match tun2he(tun2, local.clone(), &config.serv) {
         Ok(_) => {}
         Err(e) => panic!("tun2he error: {}", e),
     });
@@ -210,10 +227,10 @@ fn main() -> Result<()> {
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| match res {
         Ok(event) => match event.kind {
             EventKind::Create(kind) if kind == CreateKind::File => {
-                // configure_tunnel(&config);
+                configure_endpoint(&config, local2.clone());
             }
             EventKind::Modify(kind) if matches!(kind, ModifyKind::Data(_)) => {
-                // configure_tunnel(&config);
+                configure_endpoint(&config, local2.clone());
             }
             _ => {}
         },
@@ -225,6 +242,27 @@ fn main() -> Result<()> {
     loop {
         thread::sleep(Duration::MAX)
     }
+}
+
+fn configure_endpoint(config: &UsableConfig, local: Arc<Mutex<Ipv4Addr>>) {
+    match configure_local(config, local.clone()) {
+        Ok(_) => println!("[6in4] update local endpoint {}", local.lock().unwrap()),
+        Err(e) => println!("[6in4] can't update local endpoint: {:?}", e),
+    }
+}
+
+fn configure_local(
+    config: &UsableConfig,
+    local: Arc<Mutex<Ipv4Addr>>,
+) -> std::result::Result<(), Error> {
+    let mut file = File::open(rsdsl_ip_config::LOCATION)?;
+    let ip_config: IpConfig = serde_json::from_reader(&mut file)?;
+
+    *local.lock().unwrap() = ip_config.addr;
+
+    reqwest::blocking::get(&config.updt)?.error_for_status()?;
+
+    Ok(())
 }
 
 fn configure_tunnel(config: &UsableConfig) {
