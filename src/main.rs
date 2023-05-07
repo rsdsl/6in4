@@ -314,7 +314,7 @@ fn configure_eth0(config: &UsableConfig) -> Result<()> {
 
     fs::write("/proc/sys/net/ipv6/conf/eth0/accept_ra", "0")?;
 
-    addr::add("eth0".into(), LINK_LOCAL.into(), 64)?;
+    addr::add_link_local("eth0".into(), LINK_LOCAL.into(), 64)?;
     addr::add("eth0".into(), addr_dbg.into(), 64)?;
     addr::add("eth0".into(), addr.into(), 64)?;
 
@@ -346,7 +346,7 @@ fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
 
         fs::write("/proc/sys/net/ipv6/conf/{}/accept_ra", "0")?;
 
-        addr::add(vlan_name.clone(), LINK_LOCAL.into(), 64)?;
+        addr::add_link_local(vlan_name.clone(), LINK_LOCAL.into(), 64)?;
         addr::add(vlan_name.clone(), vlan_addr.into(), 64)?;
 
         println!(
