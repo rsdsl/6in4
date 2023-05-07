@@ -213,6 +213,8 @@ fn main() -> Result<()> {
 
     configure_endpoint(&config, local.clone());
     configure_tunnel(&config);
+    configure_lan(&config);
+    configure_vlans(&config);
 
     thread::spawn(move || match tun2he(tun2, local.clone(), &config.serv) {
         Ok(_) => {}
@@ -288,6 +290,60 @@ fn configure_he6in4(config: &UsableConfig) -> Result<()> {
     addr::add("he6in4".into(), local_v6.into(), 64)?;
 
     route::add6(Ipv6Addr::UNSPECIFIED, 0, Some(remote_v6), "he6in4".into())?;
+
+    Ok(())
+}
+
+fn configure_lan(config: &UsableConfig) {
+    match configure_eth0(config) {
+        Ok(_) => {}
+        Err(e) => println!("[6in4] can't configure eth0: {:?}", e),
+    }
+}
+
+fn configure_eth0(config: &UsableConfig) -> Result<()> {
+    let addr_dbg: Ipv6Addr = (u128::from_be_bytes(config.rt64.trunc().addr().octets()) | 1).into();
+    let addr: Ipv6Addr = (u128::from_be_bytes(config.rt48.trunc().addr().octets()) | 1).into();
+
+    println!("[6in4] wait for eth0");
+    link::wait_exists("eth0".into())?;
+
+    addr::add("eth0".into(), addr_dbg.into(), 64)?;
+    addr::add("eth0".into(), addr.into(), 64)?;
+
+    println!("[6in4] configure eth0 ({}/64, dbg {}/64)", addr, addr_dbg);
+    Ok(())
+}
+
+fn configure_vlans(config: &UsableConfig) {
+    match configure_eth0_vlans(config) {
+        Ok(_) => {}
+        Err(e) => println!("[6in4] can't configure vlans: {:?}", e),
+    }
+}
+
+fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
+    let zones = ["trusted", "untrusted", "isolated", "exposed"];
+
+    for (i, zone) in zones.iter().enumerate() {
+        let vlan_id = 10 * (i + 1);
+        let vlan_name = format!("eth0.{}", vlan_id);
+
+        let mut octets = config.rt48.trunc().addr().octets();
+        NE::write_u16(&mut octets[6..8], vlan_id as u16);
+
+        let vlan_addr = Ipv6Addr::from(u128::from_be_bytes(octets) | 1);
+
+        println!("[6in4] wait for {}", vlan_name);
+        link::wait_exists(vlan_name.clone())?;
+
+        addr::add(vlan_name.clone(), vlan_addr.into(), 64)?;
+
+        println!(
+            "[6in4] configure {} ({}/64) zone {}",
+            vlan_name, vlan_addr, zone
+        );
+    }
 
     Ok(())
 }
