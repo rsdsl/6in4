@@ -5,7 +5,7 @@ use std::mem;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -46,15 +46,15 @@ impl From<Config> for UsableConfig {
     }
 }
 
-fn send_to(sock: &Socket, buf: &[u8]) -> io::Result<usize> {
+fn send_to(ifi: i32, sock: &Socket, buf: &[u8]) -> io::Result<usize> {
     let mut sa = libc::sockaddr_ll {
         sll_family: (libc::AF_PACKET as u16).to_be(),
         sll_protocol: (libc::ETH_P_IP as u16).to_be(),
-        sll_ifindex: 64,
+        sll_ifindex: ifi,
         sll_hatype: 0,
         sll_pkttype: 0,
-        sll_halen: 6,
-        sll_addr: [0xff; 8],
+        sll_halen: 0,
+        sll_addr: [0x00; 8],
     };
 
     unsafe {
@@ -72,11 +72,12 @@ fn send_to(sock: &Socket, buf: &[u8]) -> io::Result<usize> {
     }
 }
 
-fn tun2he(tun: Arc<Iface>) -> Result<()> {
+fn tun2he(tun: Arc<Iface>, remote: &Ipv4Addr) -> Result<()> {
     //let local = Ipv4Addr::new(10, 128, 10, 237);
     //let remote = Ipv4Addr::new(10, 128, 10, 185);
-    let local = Ipv4Addr::new(10, 42, 42, 30);
-    let remote = Ipv4Addr::new(10, 42, 42, 254);
+    let local = Arc::new(Mutex::new(Ipv4Addr::new(10, 42, 42, 30)));
+
+    let ifi = link::index("ppp0".into())? as i32;
 
     let sock = Socket::new(
         libc::AF_PACKET.into(),
@@ -104,7 +105,7 @@ fn tun2he(tun: Arc<Iface>) -> Result<()> {
             continue;
         }
 
-        // Construct IP(v4) header.
+        // Construct outer IPv4 header.
         buf[4] = 0b01000101; // Version = 4, IHL = 5
         buf[5] = 0; // DSCP / ECP = 0
         NE::write_u16(&mut buf[6..8], (n - 4 + 20) as u16); // Size = dynamic
@@ -114,9 +115,10 @@ fn tun2he(tun: Arc<Iface>) -> Result<()> {
         buf[12] = 64; // TTL = 64
         buf[13] = 41; // Protocol = 41 (6in4)
         NE::write_u16(&mut buf[14..16], 0); // Checksum = 0 (computed later)
-        buf[16..20].copy_from_slice(&local.octets()); // Source IP Address = dynamic
+        buf[16..20].copy_from_slice(&local.lock().unwrap().octets()); // Source IP Address = dynamic
         buf[20..24].copy_from_slice(&remote.octets()); // Destination IP Address = HE
 
+        // Compute IPv4 header checksum.
         let mut sum = 0i32;
         for i in 0..10 {
             let j = 4 + (i * 2);
@@ -129,7 +131,7 @@ fn tun2he(tun: Arc<Iface>) -> Result<()> {
 
         NE::write_u16(&mut buf[14..16], !(sum as u16));
 
-        match send_to(&sock, &buf[4..]) {
+        match send_to(ifi, &sock, &buf[4..]) {
             Ok(sent) if sent != buf[4..].len() => println!(
                 "[6in4] tun2he warning: partial transmission ({} < {})",
                 sent,
@@ -195,7 +197,7 @@ fn main() -> Result<()> {
 
     configure_tunnel(&config);
 
-    thread::spawn(move || match tun2he(tun2) {
+    thread::spawn(move || match tun2he(tun2, &config.serv) {
         Ok(_) => {}
         Err(e) => panic!("tun2he error: {}", e),
     });
