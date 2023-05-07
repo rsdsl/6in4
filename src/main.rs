@@ -216,6 +216,8 @@ fn main() -> Result<()> {
     configure_lan(&config);
     configure_vlans(&config);
 
+    fs::write("/proc/sys/net/ipv6/conf/all/forwarding", "1")?;
+
     thread::spawn(move || match tun2he(tun2, local.clone(), &config.serv) {
         Ok(_) => {}
         Err(e) => panic!("tun2he error: {}", e),
@@ -308,6 +310,8 @@ fn configure_eth0(config: &UsableConfig) -> Result<()> {
     println!("[6in4] wait for eth0");
     link::wait_exists("eth0".into())?;
 
+    fs::write("/proc/sys/net/ipv6/conf/eth0/accept_ra", "0")?;
+
     addr::add("eth0".into(), addr_dbg.into(), 64)?;
     addr::add("eth0".into(), addr.into(), 64)?;
 
@@ -336,6 +340,8 @@ fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
 
         println!("[6in4] wait for {}", vlan_name);
         link::wait_exists(vlan_name.clone())?;
+
+        fs::write("/proc/sys/net/ipv6/conf/{}/accept_ra", "0")?;
 
         addr::add(vlan_name.clone(), vlan_addr.into(), 64)?;
 
