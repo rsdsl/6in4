@@ -10,13 +10,12 @@ use std::thread;
 use std::time::Duration;
 
 use byteorder::{ByteOrder, NetworkEndian as NE};
-use ipnet::Ipv6Net;
 use notify::event::{CreateKind, ModifyKind};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
+use rsdsl_he_config::{Config, UsableConfig};
 use rsdsl_ip_config::IpConfig;
 use rsdsl_netlinkd::error::Result;
 use rsdsl_netlinkd::{addr, link, route};
-use serde::{Deserialize, Serialize};
 use socket2::{Socket, Type};
 use thiserror::Error;
 use tun_tap::{Iface, Mode};
@@ -31,36 +30,6 @@ enum Error {
     RsdslNetlinkd(#[from] rsdsl_netlinkd::error::Error),
     #[error("serde_json: {0}")]
     SerdeJson(#[from] serde_json::Error),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Config {
-    pub serv: Ipv4Addr,
-    pub tn64: Ipv6Addr,
-    pub rt64: Ipv6Addr,
-    pub rt48: Ipv6Addr,
-    pub updt: String,
-}
-
-#[derive(Clone, Debug)]
-struct UsableConfig {
-    pub serv: Ipv4Addr,
-    pub tn64: Ipv6Net,
-    pub rt64: Ipv6Net,
-    pub rt48: Ipv6Net,
-    pub updt: String,
-}
-
-impl From<Config> for UsableConfig {
-    fn from(config: Config) -> Self {
-        Self {
-            serv: config.serv,
-            tn64: Ipv6Net::new(config.tn64, 64).unwrap(),
-            rt64: Ipv6Net::new(config.rt64, 64).unwrap(),
-            rt48: Ipv6Net::new(config.rt48, 48).unwrap(),
-            updt: config.updt,
-        }
-    }
 }
 
 const LINK_LOCAL: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);

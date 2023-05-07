@@ -885,17 +885,25 @@ name = "rsdsl_6in4"
 version = "0.1.0"
 dependencies = [
  "byteorder",
- "ipnet",
  "libc",
  "notify",
  "reqwest",
+ "rsdsl_he_config",
  "rsdsl_ip_config",
  "rsdsl_netlinkd",
- "serde",
  "serde_json",
  "socket2 0.5.2",
  "thiserror",
  "tun-tap",
+]
+
+[[package]]
+name = "rsdsl_he_config"
+version = "0.1.0"
+source = "git+https://github.com/rsdsl/he_config.git#602b64314e53db90923a32c93ebe95c12db69d4c"
+dependencies = [
+ "ipnet",
+ "serde",
 ]
 
 [[package]]
