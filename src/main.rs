@@ -1,5 +1,5 @@
 use std::ffi::c_void;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::mem;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -62,6 +62,8 @@ impl From<Config> for UsableConfig {
         }
     }
 }
+
+const LINK_LOCAL: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
 
 fn send_to(ifi: i32, sock: &Socket, buf: &[u8]) -> io::Result<usize> {
     let mut sa = libc::sockaddr_ll {
@@ -312,6 +314,7 @@ fn configure_eth0(config: &UsableConfig) -> Result<()> {
 
     fs::write("/proc/sys/net/ipv6/conf/eth0/accept_ra", "0")?;
 
+    addr::add("eth0".into(), LINK_LOCAL.into(), 64)?;
     addr::add("eth0".into(), addr_dbg.into(), 64)?;
     addr::add("eth0".into(), addr.into(), 64)?;
 
@@ -343,6 +346,7 @@ fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
 
         fs::write("/proc/sys/net/ipv6/conf/{}/accept_ra", "0")?;
 
+        addr::add(vlan_name.clone(), LINK_LOCAL.into(), 64)?;
         addr::add(vlan_name.clone(), vlan_addr.into(), 64)?;
 
         println!(
