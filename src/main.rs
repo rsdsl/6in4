@@ -243,7 +243,7 @@ fn configure_local(
                     return Err(e.into());
                 }
 
-                thread::sleep(Duration::from_secs(8));
+                thread::sleep(Duration::from_secs(16));
             }
         }
     }
