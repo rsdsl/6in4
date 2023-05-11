@@ -235,7 +235,18 @@ fn configure_local(
 
     *local.lock().unwrap() = ip_config.addr;
 
-    reqwest::blocking::get(&config.updt)?.error_for_status()?;
+    for i in 0..3 {
+        match reqwest::blocking::get(&config.updt)?.error_for_status() {
+            Ok(_) => break,
+            Err(e) => {
+                if i == 2 {
+                    return Err(e.into());
+                }
+
+                thread::sleep(Duration::from_secs(8));
+            }
+        }
+    }
 
     Ok(())
 }
