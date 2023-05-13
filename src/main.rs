@@ -236,6 +236,8 @@ fn configure_local(
     *local.lock().unwrap() = ip_config.addr;
 
     for i in 0..3 {
+        // This can resolve DNS just fine as long as dnsd is running
+        // and has an internet connection.
         match reqwest::blocking::get(&config.updt) {
             Ok(v) => {
                 v.error_for_status()?;
