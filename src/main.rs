@@ -74,7 +74,7 @@ fn tun2he(tun: Arc<Iface>, local: Arc<Mutex<Ipv4Addr>>, remote: &Ipv4Addr) -> Re
         let n = match tun.recv(&mut buf[20..]) {
             Ok(v) => v,
             Err(e) => {
-                println!("[6in4] tun2he warning: {}", e);
+                println!("tun2he warning: {}", e);
                 continue;
             }
         };
@@ -83,7 +83,7 @@ fn tun2he(tun: Arc<Iface>, local: Arc<Mutex<Ipv4Addr>>, remote: &Ipv4Addr) -> Re
         let ether_type = NE::read_u16(&buf[22..24]);
         if ether_type != libc::ETH_P_IPV6 as u16 {
             println!(
-                "[6in4] drop outbound non-ipv6 pkt, ethertype: 0x{:04x}",
+                "drop outbound non-ipv6 pkt, ethertype: 0x{:04x}",
                 ether_type
             );
             continue;
@@ -117,12 +117,12 @@ fn tun2he(tun: Arc<Iface>, local: Arc<Mutex<Ipv4Addr>>, remote: &Ipv4Addr) -> Re
 
         match send_to(ifi, &sock, &buf[4..]) {
             Ok(sent) if sent != buf[4..].len() => println!(
-                "[6in4] tun2he warning: partial transmission ({} < {})",
+                "tun2he warning: partial transmission ({} < {})",
                 sent,
                 buf[4..].len()
             ),
             Ok(_) => {}
-            Err(e) => println!("[6in4] tun2he warning: {}", e),
+            Err(e) => println!("tun2he warning: {}", e),
         }
     }
 }
@@ -141,7 +141,7 @@ fn he2tun(tun: Arc<Iface>) -> Result<()> {
         let n = match sock.read(&mut buf[4..]) {
             Ok(v) => v,
             Err(e) => {
-                println!("[6in4] he2tun warning: {}", e);
+                println!("he2tun warning: {}", e);
                 continue;
             }
         };
@@ -155,12 +155,12 @@ fn he2tun(tun: Arc<Iface>) -> Result<()> {
         NE::write_u16(&mut buf[22..24], libc::ETH_P_IPV6 as u16);
         match tun.send(&buf[20..]) {
             Ok(sent) if sent != buf.len() - 20 => println!(
-                "[6in4] he2tun warning: partial transmission ({} < {})",
+                "he2tun warning: partial transmission ({} < {})",
                 sent,
                 buf.len() - 20
             ),
             Ok(_) => {}
-            Err(e) => println!("[6in4] he2tun warning: {}", e),
+            Err(e) => println!("he2tun warning: {}", e),
         }
     }
 }
@@ -172,7 +172,7 @@ fn main() -> Result<()> {
 
     let ip_config = Path::new(rsdsl_ip_config::LOCATION);
     while !ip_config.exists() {
-        println!("[6in4] wait for pppoe");
+        println!("wait for pppoe");
         thread::sleep(Duration::from_secs(8));
     }
 
@@ -209,7 +209,7 @@ fn main() -> Result<()> {
             }
             _ => {}
         },
-        Err(e) => println!("[6in4] watch error: {:?}", e),
+        Err(e) => println!("watch error: {:?}", e),
     })?;
 
     watcher.watch(ip_config, RecursiveMode::NonRecursive)?;
@@ -221,8 +221,8 @@ fn main() -> Result<()> {
 
 fn configure_endpoint(config: &UsableConfig, local: Arc<Mutex<Ipv4Addr>>) {
     match configure_local(config, local.clone()) {
-        Ok(_) => println!("[6in4] update local endpoint {}", local.lock().unwrap()),
-        Err(e) => println!("[6in4] can't update local endpoint: {:?}", e),
+        Ok(_) => println!("update local endpoint {}", local.lock().unwrap()),
+        Err(e) => println!("can't update local endpoint: {:?}", e),
     }
 }
 
@@ -258,12 +258,12 @@ fn configure_local(
 fn configure_tunnel(config: &UsableConfig) {
     match configure_he6in4(config) {
         Ok(_) => {
-            println!("[6in4] configure he6in4 ({})", config.serv);
-            println!("[6in4] tunnel /64: {}", config.tn64);
-            println!("[6in4] routed /64: {}", config.rt64);
-            println!("[6in4] routed /48: {}", config.rt48);
+            println!("configure he6in4 ({})", config.serv);
+            println!("tunnel /64: {}", config.tn64);
+            println!("routed /64: {}", config.rt64);
+            println!("routed /48: {}", config.rt48);
         }
-        Err(e) => println!("[6in4] can't configure he6in4: {:?}", e),
+        Err(e) => println!("can't configure he6in4: {:?}", e),
     }
 }
 
@@ -285,7 +285,7 @@ fn configure_he6in4(config: &UsableConfig) -> Result<()> {
 fn configure_lan(config: &UsableConfig) {
     match configure_eth0(config) {
         Ok(_) => {}
-        Err(e) => println!("[6in4] can't configure eth0: {:?}", e),
+        Err(e) => println!("can't configure eth0: {:?}", e),
     }
 }
 
@@ -293,7 +293,7 @@ fn configure_eth0(config: &UsableConfig) -> Result<()> {
     let addr_dbg: Ipv6Addr = (u128::from_be_bytes(config.rt64.trunc().addr().octets()) | 1).into();
     let addr: Ipv6Addr = (u128::from_be_bytes(config.rt48.trunc().addr().octets()) | 1).into();
 
-    println!("[6in4] wait for eth0");
+    println!("wait for eth0");
     link::wait_exists("eth0".into())?;
 
     fs::write("/proc/sys/net/ipv6/conf/eth0/accept_ra", "0")?;
@@ -302,14 +302,14 @@ fn configure_eth0(config: &UsableConfig) -> Result<()> {
     addr::add("eth0".into(), addr_dbg.into(), 64)?;
     addr::add("eth0".into(), addr.into(), 64)?;
 
-    println!("[6in4] configure eth0 ({}/64, dbg {}/64)", addr, addr_dbg);
+    println!("configure eth0 ({}/64, dbg {}/64)", addr, addr_dbg);
     Ok(())
 }
 
 fn configure_vlans(config: &UsableConfig) {
     match configure_eth0_vlans(config) {
         Ok(_) => {}
-        Err(e) => println!("[6in4] can't configure vlans: {:?}", e),
+        Err(e) => println!("can't configure vlans: {:?}", e),
     }
 }
 
@@ -325,7 +325,7 @@ fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
 
         let vlan_addr = Ipv6Addr::from(u128::from_be_bytes(octets) | 1);
 
-        println!("[6in4] wait for {}", vlan_name);
+        println!("wait for {}", vlan_name);
         link::wait_exists(vlan_name.clone())?;
 
         fs::write(
@@ -336,10 +336,7 @@ fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
         addr::add_link_local(vlan_name.clone(), LINK_LOCAL.into(), 64)?;
         addr::add(vlan_name.clone(), vlan_addr.into(), 64)?;
 
-        println!(
-            "[6in4] configure {} ({}/64) zone {}",
-            vlan_name, vlan_addr, zone
-        );
+        println!("configure {} ({}/64) zone {}", vlan_name, vlan_addr, zone);
     }
 
     Ok(())
