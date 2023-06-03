@@ -247,6 +247,7 @@ fn configure_local(
         {
             Ok(v) => {
                 v.error_for_status()?;
+                break;
             }
             Err(e) => {
                 if i == 2 {
