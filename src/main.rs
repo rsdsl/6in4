@@ -2,7 +2,7 @@ use std::ffi::c_void;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::mem;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4};
 use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
