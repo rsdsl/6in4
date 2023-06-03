@@ -236,9 +236,15 @@ fn configure_local(
     *local.lock().unwrap() = ip_config.addr;
 
     for i in 0..3 {
-        // This can resolve DNS just fine as long as dnsd is running
-        // and has an internet connection.
-        match reqwest::blocking::get(&config.updt) {
+        match reqwest::blocking::Client::builder()
+            .resolve(
+                "ipv4.tunnelbroker.net",
+                SocketAddrV4::new(Ipv4Addr::new(64, 62, 200, 2), 443).into(),
+            )
+            .build()?
+            .get(&config.updt)
+            .send()
+        {
             Ok(v) => {
                 v.error_for_status()?;
             }
