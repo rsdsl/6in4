@@ -12,7 +12,7 @@ notify = "5.1.0"
 reqwest = { version = "0.11.17", default-features = false, features = ["blocking", "rustls-tls"] }
 rsdsl_he_config = { git = "https://github.com/rsdsl/he_config.git", version = "0.1.0" }
 rsdsl_ip_config = { git = "https://github.com/rsdsl/ip_config.git", version = "0.1.0" }
-rsdsl_netlinkd = { git = "https://github.com/rsdsl/netlinkd.git", version = "0.3.1" }
+rsdsl_netlinkd = { git = "https://github.com/rsdsl/netlinkd.git", version = "0.3.2" }
 serde_json = "1.0"
 socket2 = { version = "0.5.2", features = ["all"] }
 thiserror = "1.0"
