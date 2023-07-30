@@ -13,7 +13,7 @@ use byteorder::{ByteOrder, NetworkEndian as NE};
 use notify::event::{CreateKind, ModifyKind};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use rsdsl_he_config::{Config, UsableConfig};
-use rsdsl_ip_config::IpConfig;
+use rsdsl_ip_config::DsConfig;
 use rsdsl_netlinkd::error::Result;
 use rsdsl_netlinkd::{addr, link, route};
 use socket2::{Socket, Type};
@@ -22,6 +22,9 @@ use tun_tap::{Iface, Mode};
 
 #[derive(Debug, Error)]
 enum Error {
+    #[error("no native ipv4 connection")]
+    NoNativeIpv4,
+
     #[error("io: {0}")]
     Io(#[from] io::Error),
     #[error("reqwest: {0}")]
@@ -231,9 +234,9 @@ fn configure_local(
     local: Arc<Mutex<Ipv4Addr>>,
 ) -> std::result::Result<(), Error> {
     let mut file = File::open(rsdsl_ip_config::LOCATION)?;
-    let ip_config: IpConfig = serde_json::from_reader(&mut file)?;
+    let ds_config: DsConfig = serde_json::from_reader(&mut file)?;
 
-    *local.lock().unwrap() = ip_config.addr;
+    *local.lock().unwrap() = ds_config.v4.ok_or(Error::NoNativeIpv4)?.addr;
 
     for i in 0..3 {
         match reqwest::blocking::Client::builder()
