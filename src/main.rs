@@ -1,11 +1,7 @@
-use std::ffi::c_void;
 use std::fs::{self, File};
-use std::io::{self, Read};
-use std::mem;
+use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4};
-use std::os::fd::AsRawFd;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -14,11 +10,9 @@ use notify::event::{CreateKind, ModifyKind};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use rsdsl_he_config::{Config, UsableConfig};
 use rsdsl_ip_config::DsConfig;
-use rsdsl_netlinkd::error::Result;
 use rsdsl_netlinkd::{addr, link, route};
-use socket2::{Socket, Type};
+use rsdsl_netlinkd_sys::Sit;
 use thiserror::Error;
-use tun_tap::{Iface, Mode};
 
 #[derive(Debug, Error)]
 enum Error {
@@ -27,145 +21,27 @@ enum Error {
 
     #[error("io: {0}")]
     Io(#[from] io::Error),
+    #[error("notify: {0}")]
+    Notify(#[from] notify::Error),
     #[error("reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
     #[error("rsdsl_netlinkd: {0}")]
     RsdslNetlinkd(#[from] rsdsl_netlinkd::error::Error),
+    #[error("rsdsl_netlinkd_sys: {0}")]
+    RsdslNetlinkdSys(#[from] rsdsl_netlinkd_sys::Error),
     #[error("serde_json: {0}")]
     SerdeJson(#[from] serde_json::Error),
 }
 
+type Result<T> = std::result::Result<T, Error>;
+
 const LINK_LOCAL: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
 
-fn send_to(ifi: i32, sock: &Socket, buf: &[u8]) -> io::Result<usize> {
-    let mut sa = libc::sockaddr_ll {
-        sll_family: (libc::AF_PACKET as u16).to_be(),
-        sll_protocol: (libc::ETH_P_IP as u16).to_be(),
-        sll_ifindex: ifi,
-        sll_hatype: 0,
-        sll_pkttype: 0,
-        sll_halen: 0,
-        sll_addr: [0x00; 8],
-    };
+fn local_address() -> Result<Ipv4Addr> {
+    let mut file = File::open(rsdsl_ip_config::LOCATION)?;
+    let ds_config: DsConfig = serde_json::from_reader(&mut file)?;
 
-    unsafe {
-        match libc::sendto(
-            sock.as_raw_fd(),
-            buf as *const _ as *const c_void,
-            mem::size_of_val(buf),
-            0,
-            &mut sa as *mut libc::sockaddr_ll as *const libc::sockaddr,
-            mem::size_of_val(&sa) as u32,
-        ) {
-            n if n < 0 => Err(io::Error::last_os_error()),
-            n => Ok(n as usize),
-        }
-    }
-}
-
-fn tun2he(tun: Arc<Iface>, local: Arc<Mutex<Ipv4Addr>>, remote: &Ipv4Addr) -> Result<()> {
-    let ifi = link::index("rsppp0".into())? as i32;
-
-    let sock = Socket::new(
-        libc::AF_PACKET.into(),
-        Type::DGRAM,
-        Some(((libc::ETH_P_IPV6 as u16).to_be() as i32).into()),
-    )?;
-
-    let mut buf = [0; 4 + 1492];
-    loop {
-        let n = match tun.recv(&mut buf[20..]) {
-            Ok(v) => v,
-            Err(e) => {
-                println!("tun2he warning: {}", e);
-                continue;
-            }
-        };
-        let buf = &mut buf[..20 + n];
-
-        let ether_type = NE::read_u16(&buf[22..24]);
-        if ether_type != libc::ETH_P_IPV6 as u16 {
-            println!(
-                "drop outbound non-ipv6 pkt, ethertype: 0x{:04x}",
-                ether_type
-            );
-            continue;
-        }
-
-        // Construct outer IPv4 header.
-        buf[4] = 0b01000101; // Version = 4, IHL = 5
-        buf[5] = 0; // DSCP / ECP = 0
-        NE::write_u16(&mut buf[6..8], (n - 4 + 20) as u16); // Size = dynamic
-        NE::write_u16(&mut buf[8..10], 0); // ID = 0
-        buf[10] = 0b01000000; // Flags = DF, Fragment Offset = 0...
-        buf[11] = 0; // Fragment Offset = ...0
-        buf[12] = 64; // TTL = 64
-        buf[13] = 41; // Protocol = 41 (6in4)
-        NE::write_u16(&mut buf[14..16], 0); // Checksum = 0 (computed later)
-        buf[16..20].copy_from_slice(&local.lock().unwrap().octets()); // Source IP Address = dynamic
-        buf[20..24].copy_from_slice(&remote.octets()); // Destination IP Address = HE
-
-        // Compute IPv4 header checksum.
-        let mut sum = 0i32;
-        for i in 0..10 {
-            let j = 4 + (i * 2);
-            sum += NE::read_u16(&buf[j..2 + j]) as i32;
-        }
-
-        while sum >> 16 > 0 {
-            sum = (sum & 0xffff) + (sum >> 16);
-        }
-
-        NE::write_u16(&mut buf[14..16], !(sum as u16));
-
-        match send_to(ifi, &sock, &buf[4..]) {
-            Ok(sent) if sent != buf[4..].len() => println!(
-                "tun2he warning: partial transmission ({} < {})",
-                sent,
-                buf[4..].len()
-            ),
-            Ok(_) => {}
-            Err(e) => println!("tun2he warning: {}", e),
-        }
-    }
-}
-
-fn he2tun(tun: Arc<Iface>) -> Result<()> {
-    let mut sock = Socket::new(
-        libc::AF_PACKET.into(),
-        Type::DGRAM,
-        Some(((libc::ETH_P_IP as u16).to_be() as i32).into()),
-    )?;
-
-    let mut buf = [0; 4 + 1500];
-    NE::write_u16(&mut buf[2..4], libc::ETH_P_IPV6 as u16);
-
-    loop {
-        let n = match sock.read(&mut buf[4..]) {
-            Ok(v) => v,
-            Err(e) => {
-                println!("he2tun warning: {}", e);
-                continue;
-            }
-        };
-        let buf = &mut buf[..4 + n];
-
-        // Only process 6in4.
-        if buf[13] != 41 {
-            continue;
-        }
-
-        NE::write_u16(&mut buf[22..24], libc::ETH_P_IPV6 as u16);
-        match tun.send(&buf[20..]) {
-            Ok(sent) if sent != buf.len() - 20 => println!(
-                "he2tun warning: partial transmission ({} < {})",
-                sent,
-                buf.len() - 20
-            ),
-            Ok(_) => {}
-            Err(e) => println!("he2tun warning: {}", e),
-        }
-    }
+    Ok(ds_config.v4.ok_or(Error::NoNativeIpv4)?.addr)
 }
 
 fn main() -> Result<()> {
@@ -179,36 +55,23 @@ fn main() -> Result<()> {
         thread::sleep(Duration::from_secs(8));
     }
 
-    let tun = Arc::new(Iface::new("he6in4", Mode::Tun)?);
-    let tun2 = tun.clone();
+    let local = local_address()?;
+    let _tnl = Sit::new("he6in4", "ppp0", local, config.serv)?;
 
-    let local = Arc::new(Mutex::new(Ipv4Addr::UNSPECIFIED));
-    let local2 = local.clone();
-
-    configure_endpoint(&config, local.clone());
+    configure_endpoint(&config);
     configure_tunnel(&config);
     configure_lan(&config);
     configure_vlans(&config);
 
     fs::write("/proc/sys/net/ipv6/conf/all/forwarding", "1")?;
 
-    thread::spawn(move || match tun2he(tun2, local.clone(), &config.serv) {
-        Ok(_) => {}
-        Err(e) => panic!("tun2he error: {}", e),
-    });
-
-    thread::spawn(move || match he2tun(tun) {
-        Ok(_) => {}
-        Err(e) => panic!("he2tun error: {}", e),
-    });
-
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| match res {
         Ok(event) => match event.kind {
             EventKind::Create(kind) if kind == CreateKind::File => {
-                configure_endpoint(&config, local2.clone());
+                configure_endpoint(&config);
             }
             EventKind::Modify(kind) if matches!(kind, ModifyKind::Data(_)) => {
-                configure_endpoint(&config, local2.clone());
+                configure_endpoint(&config);
             }
             _ => {}
         },
@@ -222,22 +85,14 @@ fn main() -> Result<()> {
     }
 }
 
-fn configure_endpoint(config: &UsableConfig, local: Arc<Mutex<Ipv4Addr>>) {
-    match configure_local(config, local.clone()) {
-        Ok(_) => println!("update local endpoint {}", local.lock().unwrap()),
+fn configure_endpoint(config: &UsableConfig) {
+    match configure_local(config) {
+        Ok(_) => println!("update local endpoint"),
         Err(e) => println!("can't update local endpoint: {:?}", e),
     }
 }
 
-fn configure_local(
-    config: &UsableConfig,
-    local: Arc<Mutex<Ipv4Addr>>,
-) -> std::result::Result<(), Error> {
-    let mut file = File::open(rsdsl_ip_config::LOCATION)?;
-    let ds_config: DsConfig = serde_json::from_reader(&mut file)?;
-
-    *local.lock().unwrap() = ds_config.v4.ok_or(Error::NoNativeIpv4)?.addr;
-
+fn configure_local(config: &UsableConfig) -> Result<()> {
     for i in 0..3 {
         match reqwest::blocking::Client::builder()
             .resolve(
