@@ -136,7 +136,6 @@ fn configure_he6in4(config: &UsableConfig) -> Result<()> {
     let local_v6: Ipv6Addr = (u128::from_be_bytes(config.tn64.trunc().addr().octets()) | 2).into();
     let remote_v6: Ipv6Addr = (u128::from_be_bytes(config.tn64.trunc().addr().octets()) | 1).into();
 
-    link::set_mtu("he6in4".into(), 1472)?;
     link::up("he6in4".into())?;
 
     addr::flush("he6in4".into())?;
