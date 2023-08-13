@@ -55,6 +55,17 @@ fn main() -> Result<()> {
         thread::sleep(Duration::from_secs(8));
     }
 
+    // Check for native connectivity to avoid breaking netlinkd.
+    {
+        let mut file = File::open(rsdsl_ip_config::LOCATION)?;
+        let dsconfig: DsConfig = serde_json::from_reader(&mut file)?;
+
+        if dsconfig.v6.is_some() {
+            println!("use native ipv6");
+            return Ok(());
+        }
+    }
+
     let local = local_address()?;
     let _tnl = Sit::new("he6in4", "ppp0", local, config.serv)?;
 
