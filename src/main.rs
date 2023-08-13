@@ -55,22 +55,14 @@ fn main() -> Result<()> {
         thread::sleep(Duration::from_secs(8));
     }
 
-    // Check for native connectivity to avoid breaking netlinkd.
-    {
-        let mut file = File::open(rsdsl_ip_config::LOCATION)?;
-        let dsconfig: DsConfig = serde_json::from_reader(&mut file)?;
-
-        if dsconfig.v6.is_some() {
-            println!("use native ipv6");
-            return Ok(());
-        }
-    }
+    let mut file = File::open(rsdsl_ip_config::LOCATION)?;
+    let dsconfig: DsConfig = serde_json::from_reader(&mut file)?;
 
     let local = local_address()?;
     let _tnl = Sit::new("he6in4", "ppp0", local, config.serv)?;
 
     configure_endpoint(&config);
-    configure_tunnel(&config);
+    configure_tunnel(&config, &dsconfig);
     configure_lan(&config);
     configure_vlans(&config);
 
@@ -131,8 +123,8 @@ fn configure_local(config: &UsableConfig) -> Result<()> {
     Ok(())
 }
 
-fn configure_tunnel(config: &UsableConfig) {
-    match configure_he6in4(config) {
+fn configure_tunnel(config: &UsableConfig, dsconfig: &DsConfig) {
+    match configure_he6in4(config, dsconfig) {
         Ok(_) => {
             println!("configure he6in4 ({})", config.serv);
             println!("tunnel /64: {}", config.tn64);
@@ -143,7 +135,7 @@ fn configure_tunnel(config: &UsableConfig) {
     }
 }
 
-fn configure_he6in4(config: &UsableConfig) -> Result<()> {
+fn configure_he6in4(config: &UsableConfig, dsconfig: &DsConfig) -> Result<()> {
     let local_v6: Ipv6Addr = (u128::from_be_bytes(config.tn64.trunc().addr().octets()) | 2).into();
     let remote_v6: Ipv6Addr = (u128::from_be_bytes(config.tn64.trunc().addr().octets()) | 1).into();
 
@@ -152,7 +144,10 @@ fn configure_he6in4(config: &UsableConfig) -> Result<()> {
     addr::flush("he6in4".into())?;
     addr::add("he6in4".into(), local_v6.into(), 64)?;
 
-    route::add6(Ipv6Addr::UNSPECIFIED, 0, Some(remote_v6), "he6in4".into())?;
+    // Check for native connectivity to avoid breaking netlinkd.
+    if dsconfig.v6.is_none() {
+        route::add6(Ipv6Addr::UNSPECIFIED, 0, Some(remote_v6), "he6in4".into())?;
+    }
 
     Ok(())
 }
