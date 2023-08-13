@@ -63,8 +63,8 @@ fn main() -> Result<()> {
 
     configure_endpoint(&config);
     configure_tunnel(&config, &dsconfig);
-    configure_lan(&config);
-    configure_vlans(&config);
+    configure_lan(&config, &dsconfig);
+    configure_vlans(&config, &dsconfig);
 
     fs::write("/proc/sys/net/ipv6/conf/all/forwarding", "1")?;
 
@@ -152,14 +152,14 @@ fn configure_he6in4(config: &UsableConfig, dsconfig: &DsConfig) -> Result<()> {
     Ok(())
 }
 
-fn configure_lan(config: &UsableConfig) {
-    match configure_eth0(config) {
+fn configure_lan(config: &UsableConfig, dsconfig: &DsConfig) {
+    match configure_eth0(config, dsconfig) {
         Ok(_) => {}
         Err(e) => println!("can't configure eth0: {:?}", e),
     }
 }
 
-fn configure_eth0(config: &UsableConfig) -> Result<()> {
+fn configure_eth0(config: &UsableConfig, dsconfig: &DsConfig) -> Result<()> {
     let addr_dbg: Ipv6Addr = (u128::from_be_bytes(config.rt64.trunc().addr().octets()) | 1).into();
     let addr: Ipv6Addr = (u128::from_be_bytes(config.rt48.trunc().addr().octets()) | 1).into();
 
@@ -168,7 +168,11 @@ fn configure_eth0(config: &UsableConfig) -> Result<()> {
 
     fs::write("/proc/sys/net/ipv6/conf/eth0/accept_ra", "0")?;
 
-    addr::add_link_local("eth0".into(), LINK_LOCAL.into(), 64)?;
+    // Check for native connectivity to avoid breaking netlinkd.
+    if dsconfig.v6.is_none() {
+        addr::add_link_local("eth0".into(), LINK_LOCAL.into(), 64)?;
+    }
+
     addr::add("eth0".into(), addr_dbg.into(), 64)?;
     addr::add("eth0".into(), addr.into(), 64)?;
 
@@ -176,14 +180,14 @@ fn configure_eth0(config: &UsableConfig) -> Result<()> {
     Ok(())
 }
 
-fn configure_vlans(config: &UsableConfig) {
-    match configure_eth0_vlans(config) {
+fn configure_vlans(config: &UsableConfig, dsconfig: &DsConfig) {
+    match configure_eth0_vlans(config, dsconfig) {
         Ok(_) => {}
         Err(e) => println!("can't configure vlans: {:?}", e),
     }
 }
 
-fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
+fn configure_eth0_vlans(config: &UsableConfig, dsconfig: &DsConfig) -> Result<()> {
     let zones = ["trusted", "untrusted", "isolated", "exposed"];
 
     for (i, zone) in zones.iter().enumerate() {
@@ -203,7 +207,11 @@ fn configure_eth0_vlans(config: &UsableConfig) -> Result<()> {
             "0",
         )?;
 
-        addr::add_link_local(vlan_name.clone(), LINK_LOCAL.into(), 64)?;
+        // Check for native connectivity to avoid breaking netlinkd.
+        if dsconfig.v6.is_none() {
+            addr::add_link_local(vlan_name.clone(), LINK_LOCAL.into(), 64)?;
+        }
+
         addr::add(vlan_name.clone(), vlan_addr.into(), 64)?;
 
         println!("configure {} ({}/64) zone {}", vlan_name, vlan_addr, zone);
