@@ -142,9 +142,15 @@ fn configure_he6in4(config: &UsableConfig, dsconfig: &DsConfig) -> Result<()> {
     addr::flush("he6in4".into())?;
     addr::add("he6in4".into(), local_v6.into(), 64)?;
 
+    println!(
+        "configure peering /64 (clt {}/64, srv {}/64)",
+        local_v6, remote_v6
+    );
+
     // Check for native connectivity to avoid breaking netlinkd.
     if dsconfig.v6.is_none() {
         route::add6(Ipv6Addr::UNSPECIFIED, 0, Some(remote_v6), "he6in4".into())?;
+        println!("add default route via {}", remote_v6);
     }
 
     Ok(())
