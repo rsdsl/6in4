@@ -81,8 +81,16 @@ fn main() -> Result<()> {
 
     watcher.watch(ip_config, RecursiveMode::NonRecursive)?;
 
+    // loop {
+    //     thread::sleep(Duration::MAX)
+    // }
+
+    let sock = std::net::UdpSocket::bind("[::]:0")?;
     loop {
-        thread::sleep(Duration::MAX)
+        sock.send_to(&[0x13, 0x37, 0x41, 0x42], "[2001:4860:4860::8888]:1337")?;
+        sock.send_to(&[0xca, 0xfe, 0xaf, 0xfe], "[2001:470:1f0a:8b9::1]:1337")?;
+
+        thread::sleep(Duration::from_secs(1));
     }
 }
 
