@@ -144,7 +144,8 @@ fn configure_he6in4(config: &UsableConfig, dsconfig: &DsConfig) -> Result<()> {
 
     // Check for native connectivity to avoid breaking netlinkd.
     if dsconfig.v6.is_none() {
-        route::add6(Ipv6Addr::UNSPECIFIED, 0, Some(remote_v6), "he6in4".into())?;
+        // route::add6(Ipv6Addr::UNSPECIFIED, 0, Some(remote_v6), "he6in4".into())?;
+        route::add6(Ipv6Addr::UNSPECIFIED, 0, None, "he6in4".into())?;
     }
 
     Ok(())
