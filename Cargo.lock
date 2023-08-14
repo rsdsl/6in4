@@ -891,7 +891,7 @@ dependencies = [
 [[package]]
 name = "rsdsl_netlinkd"
 version = "0.6.1"
-source = "git+https://github.com/rsdsl/netlinkd.git#06cddb0b371192f2f28eaa50c201577fa689833f"
+source = "git+https://github.com/rsdsl/netlinkd.git#bf65c247f58127fe151c8fd6d4e8d56218d27b7a"
 dependencies = [
  "futures",
  "futures-util",
@@ -908,8 +908,8 @@ dependencies = [
 
 [[package]]
 name = "rsdsl_netlinkd_sys"
-version = "0.4.0"
-source = "git+https://github.com/rsdsl/netlinkd.git#06cddb0b371192f2f28eaa50c201577fa689833f"
+version = "0.4.9"
+source = "git+https://github.com/rsdsl/netlinkd.git#bf65c247f58127fe151c8fd6d4e8d56218d27b7a"
 dependencies = [
  "bindgen",
  "cc",
@@ -919,7 +919,7 @@ dependencies = [
 [[package]]
 name = "rsdsl_pd_config"
 version = "0.1.0"
-source = "git+https://github.com/rsdsl/pd_config.git#98ee1876a08a1c3844d0b439a8ba52e5b3423810"
+source = "git+https://github.com/rsdsl/pd_config.git#334b2ce359208f0473353fd7ef60c991de4db42d"
 dependencies = [
  "serde",
 ]
