@@ -53,10 +53,6 @@ fn main() -> Result<()> {
         thread::sleep(Duration::from_secs(8));
     }
 
-    println!("wait for up ppp0");
-    link::wait_up("ppp0".into())?;
-    thread::sleep(Duration::from_secs(2));
-
     let mut file = File::open(rsdsl_ip_config::LOCATION)?;
     let dsconfig: DsConfig = serde_json::from_reader(&mut file)?;
 
