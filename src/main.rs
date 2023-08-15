@@ -16,9 +16,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 enum Error {
-    #[error("no native ipv4 connection")]
-    NoNativeIpv4,
-
     #[error("io: {0}")]
     Io(#[from] io::Error),
     #[error("notify: {0}")]
@@ -35,51 +32,60 @@ enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-fn local_address() -> Result<Ipv4Addr> {
-    let mut file = File::open(rsdsl_ip_config::LOCATION)?;
-    let ds_config: DsConfig = serde_json::from_reader(&mut file)?;
-
-    Ok(ds_config.v4.ok_or(Error::NoNativeIpv4)?.addr)
-}
-
 fn main() -> Result<()> {
     let mut file = File::open("/data/he6in4.conf")?;
     let config: Config = serde_json::from_reader(&mut file)?;
     let config: UsableConfig = config.into();
 
-    let ip_config = Path::new(rsdsl_ip_config::LOCATION);
-    while !ip_config.exists() {
+    let ds_config = Path::new(rsdsl_ip_config::LOCATION);
+    while !ds_config.exists() {
         println!("wait for pppoe");
         thread::sleep(Duration::from_secs(8));
     }
 
-    let mut file = File::open(rsdsl_ip_config::LOCATION)?;
-    let dsconfig: DsConfig = serde_json::from_reader(&mut file)?;
+    let mut tnl = None;
 
-    let local = local_address()?;
-    let _tnl = Sit::new("he6in4", "ppp0", local, config.serv)?;
-
-    configure_endpoint(&config);
-    configure_tunnel(&config, &dsconfig);
     configure_lan(&config);
     configure_vlans(&config);
 
-    fs::write("/proc/sys/net/ipv6/conf/all/forwarding", "1")?;
+    let do_setup = |tnl: &mut Option<Sit>, config: &UsableConfig| -> Result<()> {
+        *tnl = None;
+
+        let mut file = File::open(rsdsl_ip_config::LOCATION)?;
+        let dsconfig: DsConfig = serde_json::from_reader(&mut file)?;
+
+        if let Some(ref v4) = dsconfig.v4 {
+            let local = v4.addr;
+            let remote = config.serv;
+            *tnl = Some(Sit::new("he6in4", "ppp0", local, remote)?);
+
+            configure_endpoint(config);
+            configure_tunnel(config, &dsconfig);
+        } else {
+            println!("no native ipv4");
+        }
+
+        Ok(())
+    };
+    let setup = move |tnl: &mut Option<Sit>, config: &UsableConfig| match do_setup(tnl, config) {
+        Ok(_) => {}
+        Err(e) => println!("can't create he6in4: {}", e),
+    };
+
+    setup(&mut tnl, &config);
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| match res {
         Ok(event) => match event.kind {
-            EventKind::Create(kind) if kind == CreateKind::File => {
-                configure_endpoint(&config);
-            }
+            EventKind::Create(kind) if kind == CreateKind::File => setup(&mut tnl, &config),
             EventKind::Modify(kind) if matches!(kind, ModifyKind::Data(_)) => {
-                configure_endpoint(&config);
+                setup(&mut tnl, &config)
             }
             _ => {}
         },
         Err(e) => println!("watch error: {:?}", e),
     })?;
 
-    watcher.watch(ip_config, RecursiveMode::NonRecursive)?;
+    watcher.watch(ds_config, RecursiveMode::NonRecursive)?;
 
     loop {
         thread::sleep(Duration::MAX)
